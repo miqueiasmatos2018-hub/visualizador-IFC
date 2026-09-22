@@ -119,8 +119,13 @@ const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.35);
 dirLight2.position.set(-8, 6, -10);
 scene.add(dirLight2);
 
-// Grid de chão desativado (sem grade na cena).
-function updateGridColor() {}
+// Grid de chão desativado (sem grade na cena). O fundo do WebGL é opaco
+// e cobre o gradiente do CSS, então a cor de fundo da cena 3D precisa
+// acompanhar o tema manualmente.
+function updateGridColor() {
+  const color = cssVar("--canvas-bg-top") || "#dfe4e8";
+  scene.background = new THREE.Color(color);
+}
 
 function resizeRenderer() {
   const w = viewport.clientWidth;

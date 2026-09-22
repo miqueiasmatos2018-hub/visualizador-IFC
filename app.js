@@ -708,6 +708,19 @@ let hoveredID = null;
 const hiddenIds = new Set();
 let isolatedId = null;
 
+// Verdadeiro se o elemento não está sendo renderizado no momento (oculto
+// pelo botão "Ocultar", pelas categorias ocultas por padrão, ou por estar
+// fora do isolamento atual) — usado para impedir hover/seleção (no 3D e na
+// árvore) de elementos que não aparecem na cena.
+function isElementHidden(id) {
+  // nós da árvore espacial (projeto, terreno, edificação, pavimento) não
+  // são geometria própria — não entram em allElementIds — e continuam
+  // sempre selecionáveis (apenas mostram suas propriedades).
+  if (!allElementIds.has(id)) return false;
+  if (isolatedId !== null) return id !== isolatedId;
+  return hiddenIds.has(id);
+}
+
 const HOVER_COLOR = new THREE.Color(0x3ea6f2);
 const SELECT_COLOR = new THREE.Color(0xff7a00);
 
@@ -736,10 +749,12 @@ function pickAt(clientX, clientY) {
   const hit = hits[0];
   if (hit.faceIndex === undefined) return null;
   const expressID = ifcManager.getExpressId(currentModel.geometry, hit.faceIndex);
+  if (isElementHidden(expressID)) return null;
   return { expressID, point: hit.point };
 }
 
 function highlightHover(id) {
+  if (id !== null && isElementHidden(id)) id = null;
   if (hoveredID === id) return;
   hoveredID = id;
   if (id === null) {
@@ -775,6 +790,7 @@ function highlightSelection(id) {
 }
 
 async function selectElement(id, { focus = false } = {}) {
+  if (id !== null && isElementHidden(id)) return;
   highlightSelection(id);
   await showProperties(id);
   highlightTreeSelection(id);
@@ -975,6 +991,7 @@ function rebuildVisibilityFilter() {
 
   if (isolatedId === null && hiddenIds.size === 0) {
     currentModel.visible = true;
+    updateTreeSelectableStates();
     return;
   }
 
@@ -993,6 +1010,18 @@ function rebuildVisibilityFilter() {
     scene,
   });
   alignSubsetToModel(mesh);
+  updateTreeSelectableStates();
+}
+
+// Atualiza o estado (des)habilitado de cada folha da árvore do modelo para
+// refletir quais elementos estão de fato visíveis na cena no momento —
+// elementos ocultos (padrão, pelo botão "Ocultar" ou fora do isolamento)
+// ficam com aparência apagada e não respondem a clique.
+function updateTreeSelectableStates() {
+  treeRoot.querySelectorAll(".tree-leaf").forEach((el) => {
+    const id = Number(el.dataset.expressId);
+    el.classList.toggle("tree-leaf-disabled", isElementHidden(id));
+  });
 }
 
 /* =====================================================================
@@ -1071,8 +1100,15 @@ function renderTreeNode(node, isRoot = false) {
   leaf.className = "tree-leaf";
   leaf.dataset.expressId = String(node.expressID);
   leaf.innerHTML = '<span class="dot"></span><span class="tree-label">Elemento #' + node.expressID + "</span>";
-  leaf.addEventListener("click", () => selectElement(node.expressID));
-  leaf.addEventListener("dblclick", () => selectElement(node.expressID, { focus: true }));
+  leaf.classList.toggle("tree-leaf-disabled", isElementHidden(node.expressID));
+  leaf.addEventListener("click", () => {
+    if (isElementHidden(node.expressID)) return;
+    selectElement(node.expressID);
+  });
+  leaf.addEventListener("dblclick", () => {
+    if (isElementHidden(node.expressID)) return;
+    selectElement(node.expressID, { focus: true });
+  });
 
   // busca o nome real de forma assíncrona (não bloqueia a montagem da árvore)
   ifcManager.getItemProperties(currentModelID, node.expressID, false).then((props) => {

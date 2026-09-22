@@ -221,8 +221,8 @@ async function loadIfcFile(file) {
 
 function clearModel() {
   if (currentModel) {
-    try { ifcManager.removeSubset(currentModelID, undefined, "selection"); } catch (e) {}
-    try { ifcManager.removeSubset(currentModelID, undefined, "hover"); } catch (e) {}
+    try { ifcManager.removeSubset(currentModelID, SELECT_MATERIAL, "selection"); } catch (e) {}
+    try { ifcManager.removeSubset(currentModelID, HOVER_MATERIAL, "hover"); } catch (e) {}
     try { ifcManager.removeSubset(currentModelID, undefined, "visible-filtered"); } catch (e) {}
     clearExplodeSubsets();
     scene.remove(currentModel);
@@ -618,6 +618,20 @@ let isolatedId = null;
 const HOVER_COLOR = new THREE.Color(0x3ea6f2);
 const SELECT_COLOR = new THREE.Color(0xff7a00);
 
+// O web-ifc-three identifica cada subconjunto (subset) por
+// modelID + material.uuid + customID. Por isso o MESMO objeto de
+// material precisa ser reaproveitado em toda chamada de hover/seleção —
+// caso contrário cada clique/hover cria um subset novo e permanente,
+// nunca substituído nem removido (os destaques ficam acumulando).
+const HOVER_MATERIAL = new THREE.MeshBasicMaterial({
+  color: HOVER_COLOR, transparent: true, opacity: 0.45, depthTest: true,
+  polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+});
+const SELECT_MATERIAL = new THREE.MeshBasicMaterial({
+  color: SELECT_COLOR, transparent: true, opacity: 0.55, depthTest: true,
+  polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6,
+});
+
 function pickAt(clientX, clientY) {
   if (!currentModel) return null;
   const rect = canvas.getBoundingClientRect();
@@ -636,7 +650,7 @@ function highlightHover(id) {
   if (hoveredID === id) return;
   hoveredID = id;
   if (id === null) {
-    try { ifcManager.removeSubset(currentModelID, undefined, "hover"); } catch (e) {}
+    try { ifcManager.removeSubset(currentModelID, HOVER_MATERIAL, "hover"); } catch (e) {}
     return;
   }
   const mesh = ifcManager.createSubset({
@@ -645,10 +659,7 @@ function highlightHover(id) {
     removePrevious: true,
     customID: "hover",
     scene,
-    material: new THREE.MeshBasicMaterial({
-      color: HOVER_COLOR, transparent: true, opacity: 0.45, depthTest: true,
-      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
-    }),
+    material: HOVER_MATERIAL,
   });
   alignSubsetToModel(mesh);
 }
@@ -656,7 +667,7 @@ function highlightHover(id) {
 function highlightSelection(id) {
   selectedID = id;
   if (id === null) {
-    try { ifcManager.removeSubset(currentModelID, undefined, "selection"); } catch (e) {}
+    try { ifcManager.removeSubset(currentModelID, SELECT_MATERIAL, "selection"); } catch (e) {}
     return;
   }
   const mesh = ifcManager.createSubset({
@@ -665,10 +676,7 @@ function highlightSelection(id) {
     removePrevious: true,
     customID: "selection",
     scene,
-    material: new THREE.MeshBasicMaterial({
-      color: SELECT_COLOR, transparent: true, opacity: 0.55, depthTest: true,
-      polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6,
-    }),
+    material: SELECT_MATERIAL,
   });
   alignSubsetToModel(mesh);
 }

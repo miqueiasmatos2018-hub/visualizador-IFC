@@ -222,6 +222,7 @@ async function loadIfcFile(file) {
     allElementIds = collectGeometryIds(model);
 
     await applyDefaultCategoryFilters();
+    await applyFaceColorCoding();
 
     modelBox = new THREE.Box3().setFromObject(model);
     fitCameraToBox(modelBox);
@@ -312,11 +313,108 @@ async function applyDefaultCategoryFilters() {
   if (changed) rebuildVisibilityFilter();
 }
 
+// Elementos de família "RT_DANO"/"RT_DANOS" (marcações de dano/inspeção)
+// têm um parâmetro de texto "FACE" (A–F) que define uma cor fixa no 3D,
+// independente de hover/seleção. O nome de cada família é reconhecido do
+// mesmo jeito que as categorias ocultas por padrão (primeiro trecho do
+// Nome do elemento, antes do ":").
+function matchesRtDanoFamily(name) {
+  const normalized = normalizeForMatch(name).replace(/_/g, " ").replace(/\s+/g, " ").trim();
+  const firstSegment = normalized.split(":")[0].trim();
+  return /^rt\s*danos?(\s|$)/.test(firstSegment);
+}
+
+function findFaceValue(psets) {
+  for (const pset of psets || []) {
+    for (const p of (pset && pset.HasProperties) || []) {
+      if (!p || typeof p !== "object") continue;
+      const key = ifcValueToString(p.Name);
+      if (key && normalizeForMatch(key) === "face") {
+        return ifcValueToString("NominalValue" in p ? p.NominalValue : p.Value);
+      }
+    }
+  }
+  return null;
+}
+
+// mapa letra do parâmetro FACE -> id(s) de elementos com essa letra,
+// calculado uma vez ao carregar o modelo e reaplicado (updateFaceColorSubsets)
+// sempre que a visibilidade muda (ocultar/isolar/restaurar), pra a cor
+// nunca "vazar" pra fora do que está de fato visível na cena.
+let faceColorAssignments = new Map();
+
+async function applyFaceColorCoding() {
+  faceColorAssignments = new Map();
+  if (currentModelID === null) return;
+
+  for (const id of allElementIds) {
+    let name = "";
+    try {
+      const props = await ifcManager.getItemProperties(currentModelID, id, false);
+      name = ifcValueToString(props && props.Name) || "";
+    } catch (e) {
+      continue;
+    }
+    if (!matchesRtDanoFamily(name)) continue;
+
+    let faceValue = null;
+    try {
+      const psets = await ifcManager.getPropertySets(currentModelID, id, true);
+      faceValue = findFaceValue(psets);
+    } catch (e) {
+      faceValue = null;
+    }
+
+    const letter = (faceValue || "").toString().trim().toUpperCase();
+    if (!FACE_COLOR_MATERIALS[letter]) continue;
+    if (!faceColorAssignments.has(letter)) faceColorAssignments.set(letter, new Set());
+    faceColorAssignments.get(letter).add(id);
+  }
+
+  updateFaceColorSubsets();
+}
+
+// Recria os subsets de cor por letra do FACE considerando apenas os ids
+// que estão de fato visíveis no momento (fora de hiddenIds e, se houver
+// isolamento ativo, dentro dele) — chamada tanto no carregamento quanto
+// toda vez que rebuildVisibilityFilter roda.
+function updateFaceColorSubsets() {
+  if (currentModelID === null) return;
+  const visibleSet = isolatedId !== null
+    ? new Set([isolatedId])
+    : new Set(Array.from(allElementIds).filter((id) => !hiddenIds.has(id)));
+
+  Object.keys(FACE_COLOR_MATERIALS).forEach((letter) => {
+    try { ifcManager.removeSubset(currentModelID, FACE_COLOR_MATERIALS[letter], "face-" + letter); } catch (e) {}
+    const assigned = faceColorAssignments.get(letter);
+    if (!assigned) return;
+    const ids = Array.from(assigned).filter((id) => visibleSet.has(id));
+    if (!ids.length) return;
+    const mesh = ifcManager.createSubset({
+      modelID: currentModelID,
+      ids,
+      removePrevious: true,
+      customID: "face-" + letter,
+      scene,
+      material: FACE_COLOR_MATERIALS[letter],
+    });
+    alignSubsetToModel(mesh);
+  });
+}
+
+function clearFaceColorSubsets() {
+  Object.keys(FACE_COLOR_MATERIALS).forEach((letter) => {
+    try { ifcManager.removeSubset(currentModelID, FACE_COLOR_MATERIALS[letter], "face-" + letter); } catch (e) {}
+  });
+  faceColorAssignments = new Map();
+}
+
 function clearModel() {
   if (currentModel) {
     try { ifcManager.removeSubset(currentModelID, SELECT_MATERIAL, "selection"); } catch (e) {}
     try { ifcManager.removeSubset(currentModelID, HOVER_MATERIAL, "hover"); } catch (e) {}
     try { ifcManager.removeSubset(currentModelID, undefined, "visible-filtered"); } catch (e) {}
+    clearFaceColorSubsets();
     clearExplodeSubsets();
     scene.remove(currentModel);
     try { ifcManager.close(currentModelID, scene); } catch (e) {}
@@ -738,6 +836,29 @@ const SELECT_MATERIAL = new THREE.MeshBasicMaterial({
   polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6,
 });
 
+// Cor fixa por letra do parâmetro "FACE" (elementos de família
+// RT_DANO/RT_DANOS). Usa polygonOffset mais fraco que hover/seleção pra
+// que o destaque de hover/clique continue aparecendo por cima da cor.
+const FACE_COLOR_HEX = {
+  A: 0xe53935, // vermelho
+  B: 0x1e88e5, // azul
+  C: 0x43a047, // verde
+  D: 0x8e24aa, // violeta
+  E: 0x111111, // preto
+  F: 0xfb8c00, // laranja
+};
+const FACE_COLOR_MATERIALS = {};
+Object.keys(FACE_COLOR_HEX).forEach((letter) => {
+  FACE_COLOR_MATERIALS[letter] = new THREE.MeshBasicMaterial({
+    color: FACE_COLOR_HEX[letter],
+    transparent: false,
+    depthTest: true,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  });
+});
+
 function pickAt(clientX, clientY) {
   if (!currentModel) return null;
   const rect = canvas.getBoundingClientRect();
@@ -998,6 +1119,7 @@ function rebuildVisibilityFilter() {
   if (isolatedId === null && hiddenIds.size === 0) {
     currentModel.visible = true;
     updateTreeSelectableStates();
+    updateFaceColorSubsets();
     return;
   }
 
@@ -1017,6 +1139,7 @@ function rebuildVisibilityFilter() {
   });
   alignSubsetToModel(mesh);
   updateTreeSelectableStates();
+  updateFaceColorSubsets();
 }
 
 // Atualiza o estado (des)habilitado de cada folha da árvore do modelo para

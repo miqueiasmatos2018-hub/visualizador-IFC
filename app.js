@@ -744,13 +744,19 @@ function pickAt(clientX, clientY) {
   pointerNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
   pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointerNDC, camera);
+  // currentModel é a malha única com TODA a geometria (mesmo a de elementos
+  // ocultos — eles só deixam de ser desenhados via o subset "visible-filtered"
+  // e model.visible=false, o que não afeta o raycast). Por isso não basta
+  // pegar o primeiro acerto: percorremos os acertos em ordem de distância e
+  // ignoramos os que caem em elemento oculto, pra achar o que está atrás dele.
   const hits = raycaster.intersectObject(currentModel, false);
-  if (!hits.length) return null;
-  const hit = hits[0];
-  if (hit.faceIndex === undefined) return null;
-  const expressID = ifcManager.getExpressId(currentModel.geometry, hit.faceIndex);
-  if (isElementHidden(expressID)) return null;
-  return { expressID, point: hit.point };
+  for (const hit of hits) {
+    if (hit.faceIndex === undefined) continue;
+    const expressID = ifcManager.getExpressId(currentModel.geometry, hit.faceIndex);
+    if (isElementHidden(expressID)) continue;
+    return { expressID, point: hit.point };
+  }
+  return null;
 }
 
 function highlightHover(id) {

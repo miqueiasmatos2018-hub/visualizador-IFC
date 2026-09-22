@@ -324,6 +324,10 @@ function matchesRtDanoFamily(name) {
   return /^rt\s*danos?(\s|$)/.test(firstSegment);
 }
 
+// Blocos de propriedade que ficam visíveis no painel para elementos
+// RT_DANO/RT_DANOS (nomes de grupo já normalizados — sem acento/maiúsculas).
+const DANO_VISIBLE_GROUPS = new Set(["cotas", "resultados da analise", "texto"]);
+
 function findFaceValue(psets) {
   for (const pset of psets || []) {
     for (const p of (pset && pset.HasProperties) || []) {
@@ -1019,18 +1023,28 @@ async function showProperties(id) {
 
     propGroups.innerHTML = "";
 
+    // Elementos de família RT_DANO/RT_DANOS mostram só os blocos de
+    // propriedade relevantes pra inspeção de dano (Cotas, Resultados da
+    // Análise, Texto) — os demais (Geral, Tipo, outros Psets) ficam
+    // ocultos no painel pra não poluir a leitura.
+    const isDanoElement = matchesRtDanoFamily(name);
+    const showGroup = (title) => !isDanoElement || DANO_VISIBLE_GROUPS.has(normalizeForMatch(title));
+
     // grupo com dados gerais do elemento
-    appendPropGroup("Geral", [
-      ["ExpressID", String(id)],
-      ["GlobalId", ifcValueToString(itemProps && itemProps.GlobalId)],
-      ["Nome", ifcValueToString(itemProps && itemProps.Name)],
-      ["Descrição", ifcValueToString(itemProps && itemProps.Description)],
-      ["Tag", ifcValueToString(itemProps && itemProps.Tag)],
-    ]);
+    if (showGroup("Geral")) {
+      appendPropGroup("Geral", [
+        ["ExpressID", String(id)],
+        ["GlobalId", ifcValueToString(itemProps && itemProps.GlobalId)],
+        ["Nome", ifcValueToString(itemProps && itemProps.Name)],
+        ["Descrição", ifcValueToString(itemProps && itemProps.Description)],
+        ["Tag", ifcValueToString(itemProps && itemProps.Tag)],
+      ]);
+    }
 
     // conjuntos de propriedades (Psets) — inclui abas de texto como "Texto" do Revit
     (psets || []).forEach((pset) => {
       const psetName = ifcValueToString(pset.Name) || "Propriedades";
+      if (!showGroup(psetName)) return;
       const rows = [];
       (pset.HasProperties || []).forEach((p) => {
         if (!p || typeof p !== "object") return;
@@ -1044,16 +1058,18 @@ async function showProperties(id) {
     });
 
     // propriedades do tipo (IfcType associado)
-    (typeProps || []).forEach((tp) => {
-      if (!tp || typeof tp !== "object") return;
-      const rows = [];
-      Object.keys(tp).forEach((k) => {
-        if (["expressID", "type", "HasPropertySets"].includes(k)) return;
-        const val = ifcValueToString(tp[k]);
-        if (val !== null) rows.push([k, val]);
+    if (showGroup("Tipo")) {
+      (typeProps || []).forEach((tp) => {
+        if (!tp || typeof tp !== "object") return;
+        const rows = [];
+        Object.keys(tp).forEach((k) => {
+          if (["expressID", "type", "HasPropertySets"].includes(k)) return;
+          const val = ifcValueToString(tp[k]);
+          if (val !== null) rows.push([k, val]);
+        });
+        if (rows.length) appendPropGroup("Tipo", rows);
       });
-      if (rows.length) appendPropGroup("Tipo", rows);
-    });
+    }
   } catch (err) {
     console.error(err);
     showToast("Não foi possível carregar as propriedades deste elemento.");

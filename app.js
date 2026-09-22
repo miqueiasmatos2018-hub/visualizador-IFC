@@ -239,13 +239,46 @@ async function loadIfcFile(file) {
   }
 }
 
-// Oculta por padrão as categorias definidas em DEFAULT_HIDDEN_TYPES
-// (sólido topográfico, piso, telhado e vazio), usando o mesmo mecanismo
-// de ocultação (hiddenIds + rebuildVisibilityFilter) já usado pelo botão
-// "Ocultar" e restaurável pelo botão "Restaurar".
+// Nomes de família/categoria do Revit cujos elementos ficam ocultos por
+// padrão. O Revit costuma gravar o Nome do elemento no IFC como
+// "Família:Tipo:ID" (ex.: "Sólido topográfico:Generic - 1000mm:1770586"),
+// então comparamos o primeiro trecho (antes dos ":") com esta lista,
+// ignorando acentos/maiúsculas.
+const DEFAULT_HIDDEN_NAME_PREFIXES = ["solido topografico", "piso", "telhado", "vazio"];
+
+function normalizeForMatch(str) {
+  return (str || "")
+    .toString()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function matchesDefaultHiddenName(name) {
+  const firstSegment = normalizeForMatch(name).split(":")[0].trim();
+  if (!firstSegment) return false;
+  return DEFAULT_HIDDEN_NAME_PREFIXES.some(
+    (prefix) => firstSegment === prefix || firstSegment.startsWith(prefix + " ")
+  );
+}
+
+// Oculta por padrão os elementos das categorias do Revit "Sólido
+// topográfico", "Piso", "Telhado" e "Vazio", usando o mesmo mecanismo de
+// ocultação (hiddenIds + rebuildVisibilityFilter) já usado pelo botão
+// "Ocultar" — restaurável a qualquer momento pelo botão "Restaurar".
+//
+// Duas estratégias são combinadas porque o mapeamento de categoria do
+// Revit para classe IFC varia conforme a configuração de exportação:
+// 1) pela classe IFC (funciona quando o Revit exporta como IfcSlab,
+//    IfcRoof, IfcGeographicElement ou IfcOpeningElement);
+// 2) pelo nome do elemento (necessário quando o Revit exporta a família
+//    como IfcBuildingElementProxy — caso comum para "Sólido topográfico"
+//    e para famílias genéricas de "Piso"/"Telhado"/"Vazio").
 async function applyDefaultCategoryFilters() {
   if (currentModelID === null) return;
   let changed = false;
+
   for (const type of DEFAULT_HIDDEN_TYPES) {
     let ids = [];
     try {
@@ -254,12 +287,28 @@ async function applyDefaultCategoryFilters() {
       ids = [];
     }
     for (const id of ids) {
-      if (allElementIds.has(id)) {
+      if (allElementIds.has(id) && !hiddenIds.has(id)) {
         hiddenIds.add(id);
         changed = true;
       }
     }
   }
+
+  for (const id of allElementIds) {
+    if (hiddenIds.has(id)) continue;
+    let name = "";
+    try {
+      const props = await ifcManager.getItemProperties(currentModelID, id, false);
+      name = ifcValueToString(props && props.Name) || "";
+    } catch (e) {
+      name = "";
+    }
+    if (matchesDefaultHiddenName(name)) {
+      hiddenIds.add(id);
+      changed = true;
+    }
+  }
+
   if (changed) rebuildVisibilityFilter();
 }
 

@@ -324,9 +324,11 @@ function matchesRtDanoFamily(name) {
   return /^rt\s*danos?(\s|$)/.test(firstSegment);
 }
 
-// Blocos de propriedade que ficam visíveis no painel para elementos
-// RT_DANO/RT_DANOS (nomes de grupo já normalizados — sem acento/maiúsculas).
+// Blocos de propriedade que ficam visíveis no painel — um conjunto para
+// elementos RT_DANO/RT_DANOS e outro para todos os demais elementos
+// (nomes de grupo já normalizados — sem acento/maiúsculas).
 const DANO_VISIBLE_GROUPS = new Set(["cotas", "resultados da analise", "texto"]);
+const OTHER_VISIBLE_GROUPS = new Set(["pset_quantitytakeoff", "cotas", "texto"]);
 
 function findFaceValue(psets) {
   for (const pset of psets || []) {
@@ -1023,12 +1025,14 @@ async function showProperties(id) {
 
     propGroups.innerHTML = "";
 
-    // Elementos de família RT_DANO/RT_DANOS mostram só os blocos de
-    // propriedade relevantes pra inspeção de dano (Cotas, Resultados da
-    // Análise, Texto) — os demais (Geral, Tipo, outros Psets) ficam
-    // ocultos no painel pra não poluir a leitura.
+    // O painel mostra só um conjunto fixo de blocos de propriedade, que
+    // varia conforme a família do elemento: RT_DANO/RT_DANOS mostra Cotas,
+    // Resultados da Análise e Texto; qualquer outra família mostra
+    // Pset_QuantityTakeOff, Cotas e Texto. O restante (Geral, Tipo, outros
+    // Psets) fica oculto pra não poluir a leitura.
     const isDanoElement = matchesRtDanoFamily(name);
-    const showGroup = (title) => !isDanoElement || DANO_VISIBLE_GROUPS.has(normalizeForMatch(title));
+    const allowedGroups = isDanoElement ? DANO_VISIBLE_GROUPS : OTHER_VISIBLE_GROUPS;
+    const showGroup = (title) => allowedGroups.has(normalizeForMatch(title));
 
     // grupo com dados gerais do elemento
     if (showGroup("Geral")) {

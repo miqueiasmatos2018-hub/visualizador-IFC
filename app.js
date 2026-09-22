@@ -194,10 +194,9 @@ async function loadIfcFile(file) {
     const model = await ifcLoader.parse(buffer);
     scene.add(model);
 
-    // Arquivos IFC usam Z como eixo vertical; three.js usa Y como eixo
-    // vertical. Rotacionamos o modelo para alinhar com a convenção do
-    // visualizador (grid, câmera, explodir por pavimento etc.).
-    model.rotation.x = -Math.PI / 2;
+    // web-ifc-three já entrega a geometria com Y como eixo vertical
+    // (equivalente à convenção do three.js), então nenhuma rotação extra
+    // é necessária aqui.
     model.updateMatrixWorld(true);
 
     currentModel = model;
@@ -360,7 +359,7 @@ toolWireframe.addEventListener("click", () => {
    Plano de corte (seção)
    ===================================================================== */
 let sectionActive = false;
-let sectionAxis = "z";
+let sectionAxis = "y";
 const clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
 let sectionFlipped = false;
 
@@ -428,7 +427,7 @@ let explodeActive = false;
 let explodeGroups = null; // [{ id, name, ids, mesh, baseOffset }]
 
 async function computeExplodeGroups() {
-  if (!currentModelID) return [];
+  if (currentModelID === null) return [];
   const structure = await ifcManager.getSpatialStructure(currentModelID, false);
   const containerTypes = new Set(["IFCPROJECT", "IFCSITE", "IFCBUILDING", "IFCBUILDINGSTOREY", "IFCSPACE"]);
   const buckets = new Map();
@@ -646,7 +645,10 @@ function highlightHover(id) {
     removePrevious: true,
     customID: "hover",
     scene,
-    material: new THREE.MeshBasicMaterial({ color: HOVER_COLOR, transparent: true, opacity: 0.45, depthTest: true }),
+    material: new THREE.MeshBasicMaterial({
+      color: HOVER_COLOR, transparent: true, opacity: 0.45, depthTest: true,
+      polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4,
+    }),
   });
   alignSubsetToModel(mesh);
 }
@@ -663,7 +665,10 @@ function highlightSelection(id) {
     removePrevious: true,
     customID: "selection",
     scene,
-    material: new THREE.MeshBasicMaterial({ color: SELECT_COLOR, transparent: true, opacity: 0.55, depthTest: true }),
+    material: new THREE.MeshBasicMaterial({
+      color: SELECT_COLOR, transparent: true, opacity: 0.55, depthTest: true,
+      polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6,
+    }),
   });
   alignSubsetToModel(mesh);
 }
@@ -750,7 +755,7 @@ function showPropertiesEmpty() {
 }
 
 async function showProperties(id) {
-  if (!currentModelID) return;
+  if (currentModelID === null) return;
   let ifcClass = "";
   try { ifcClass = await ifcManager.getIfcType(currentModelID, id); } catch (e) { ifcClass = ""; }
 
@@ -902,7 +907,7 @@ const TYPE_LABELS = {
 
 async function buildTree() {
   treeRoot.innerHTML = "";
-  if (!currentModelID) return;
+  if (currentModelID === null) return;
   const structure = await ifcManager.getSpatialStructure(currentModelID, false);
   const rootEl = renderTreeNode(structure, true);
   treeRoot.appendChild(rootEl);

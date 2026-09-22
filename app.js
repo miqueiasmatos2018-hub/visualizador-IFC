@@ -1,6 +1,31 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { IFCLoader } from "web-ifc-three/IFCLoader";
+import {
+  IFCSLAB,
+  IFCSLABSTANDARDCASE,
+  IFCSLABELEMENTEDCASE,
+  IFCROOF,
+  IFCROOFTYPE,
+  IFCGEOGRAPHICELEMENT,
+  IFCGEOGRAPHICELEMENTTYPE,
+  IFCOPENINGELEMENT,
+} from "web-ifc";
+
+// Categorias que ficam ocultas por padrão ao carregar um modelo (elementos
+// de família do Revit que normalmente atrapalham a visualização):
+// Sólido Topográfico, Piso, Telhado e Vazio. O usuário pode trazê-los de
+// volta a qualquer momento com o botão "Restaurar" da barra de ferramentas.
+const DEFAULT_HIDDEN_TYPES = [
+  IFCSLAB,
+  IFCSLABSTANDARDCASE,
+  IFCSLABELEMENTEDCASE,
+  IFCROOF,
+  IFCROOFTYPE,
+  IFCGEOGRAPHICELEMENT,
+  IFCGEOGRAPHICELEMENTTYPE,
+  IFCOPENINGELEMENT,
+];
 
 /* =====================================================================
    Elementos do DOM
@@ -196,6 +221,8 @@ async function loadIfcFile(file) {
     currentModelID = model.modelID;
     allElementIds = collectGeometryIds(model);
 
+    await applyDefaultCategoryFilters();
+
     modelBox = new THREE.Box3().setFromObject(model);
     fitCameraToBox(modelBox);
 
@@ -210,6 +237,30 @@ async function loadIfcFile(file) {
     progressOverlay.classList.add("hidden");
     progressFill.style.width = "0%";
   }
+}
+
+// Oculta por padrão as categorias definidas em DEFAULT_HIDDEN_TYPES
+// (sólido topográfico, piso, telhado e vazio), usando o mesmo mecanismo
+// de ocultação (hiddenIds + rebuildVisibilityFilter) já usado pelo botão
+// "Ocultar" e restaurável pelo botão "Restaurar".
+async function applyDefaultCategoryFilters() {
+  if (currentModelID === null) return;
+  let changed = false;
+  for (const type of DEFAULT_HIDDEN_TYPES) {
+    let ids = [];
+    try {
+      ids = (await ifcManager.getAllItemsOfType(currentModelID, type, false)) || [];
+    } catch (e) {
+      ids = [];
+    }
+    for (const id of ids) {
+      if (allElementIds.has(id)) {
+        hiddenIds.add(id);
+        changed = true;
+      }
+    }
+  }
+  if (changed) rebuildVisibilityFilter();
 }
 
 function clearModel() {

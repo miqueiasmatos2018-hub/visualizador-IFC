@@ -119,20 +119,8 @@ const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.35);
 dirLight2.position.set(-8, 6, -10);
 scene.add(dirLight2);
 
-let grid = null;
-function updateGridColor() {
-  if (grid) {
-    scene.remove(grid);
-    grid.geometry.dispose();
-    grid.material.dispose();
-  }
-  const color = cssVar("--grid-color") || "#888888";
-  grid = new THREE.GridHelper(60, 60, color, color);
-  grid.material.transparent = true;
-  grid.material.opacity = 0.35;
-  grid.position.y = 0;
-  scene.add(grid);
-}
+// Grid de chão desativado (sem grade na cena).
+function updateGridColor() {}
 
 function resizeRenderer() {
   const w = viewport.clientWidth;
